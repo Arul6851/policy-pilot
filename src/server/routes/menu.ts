@@ -2,8 +2,15 @@ import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context } from '@devvit/web/server';
 import { createPost } from '../core/post';
+import { runPlaybookMenu } from '../menuItems/runPlaybook';
+import { configPlaybookMenu } from '../menuItems/configPlaybook';
+import { viewHistoryMenu } from '../menuItems/viewHistory';
 
 export const menu = new Hono();
+
+menu.route('', runPlaybookMenu);
+menu.route('', configPlaybookMenu);
+menu.route('', viewHistoryMenu);
 
 menu.post('/post-create', async (c) => {
   try {
