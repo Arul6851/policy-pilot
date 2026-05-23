@@ -2,8 +2,11 @@ import { Hono } from 'hono';
 import type { OnAppInstallRequest, TriggerResponse } from '@devvit/web/shared';
 import { context } from '@devvit/web/server';
 import { createPost } from '../core/post';
+import { onModActionTrigger } from '../triggers/onModAction';
 
 export const triggers = new Hono();
+
+triggers.route('', onModActionTrigger);
 
 triggers.post('/on-app-install', async (c) => {
   try {
