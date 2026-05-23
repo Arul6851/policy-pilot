@@ -1,0 +1,56 @@
+import { Hono } from 'hono';
+import type { OnModActionRequest, TriggerResponse } from '@devvit/web/shared';
+import { redis } from '@devvit/web/server';
+import { addLedgerEntry } from '../services/ledgerService';
+import type { LedgerEntry, LedgerAction } from '../../shared/types';
+
+export const onModActionTrigger = new Hono();
+
+function mapAction(action: string): LedgerAction {
+  switch (action) {
+    case 'removelink':
+    case 'removecomment':
+    case 'spamlink':
+    case 'spamcomment':
+      return 'remove';
+    case 'approvelink':
+    case 'approvecomment':
+      return 'approve';
+    case 'banuser':
+      return 'permban';
+    case 'tempban':
+      return 'tempban';
+    case 'muteuser':
+      return 'warn';
+    default:
+      return 'note';
+  }
+}
+
+onModActionTrigger.post('/on-mod-action', async (c) => {
+  const event = await c.req.json<OnModActionRequest>();
+
+  const userId = event.targetUser?.name;
+  const rawAction = event.action;
+
+  if (!userId || !rawAction) {
+    return c.json<TriggerResponse>({}, 200);
+  }
+
+  const timestamp = event.actionedAt ? new Date(event.actionedAt).getTime() : Date.now();
+
+  const entry: LedgerEntry = {
+    id: `${userId}-${timestamp}-${Math.random().toString(36).slice(2, 7)}`,
+    userId,
+    action: mapAction(rawAction),
+    ruleId: '',
+    modId: event.moderator?.name ?? 'unknown',
+    postId: event.targetPost?.id ?? event.targetComment?.id,
+    usedPlaybook: false,
+    timestamp,
+  };
+
+  await addLedgerEntry(redis, entry);
+
+  return c.json<TriggerResponse>({}, 200);
+});
