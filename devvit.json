@@ -20,26 +20,99 @@
   "menu": {
     "items": [
       {
-        "label": "Create a new post",
+        "label": "Run Playbook",
+        "description": "Evaluate moderation policy and take action",
+        "location": "post",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/run-playbook"
+      },
+      {
+        "label": "Run Playbook",
+        "description": "Evaluate moderation policy and take action",
+        "location": "comment",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/run-playbook"
+      },
+      {
+        "label": "Configure Playbooks",
+        "description": "Create or manage PolicyPilot playbooks",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/config-playbook"
+      },
+      {
+        "label": "View User History",
+        "description": "View moderation history and profile for this user",
+        "location": "post",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/view-history"
+      },
+      {
+        "label": "View User History",
+        "description": "View moderation history and profile for this user",
+        "location": "comment",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/view-history"
+      },
+      {
+        "label": "Create Dashboard Post",
         "description": "policy-pilot",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
-      },
-      {
-        "label": "Example form",
-        "description": "Show a simple form",
-        "location": "subreddit",
-        "forUserType": "moderator",
-        "endpoint": "/internal/menu/example-form"
       }
     ]
   },
   "forms": {
-    "exampleForm": "/internal/form/example-submit"
+    "exampleForm": "/internal/form/example-submit",
+    "runPlaybookSelect": "/internal/form/run-playbook-evaluate",
+    "runPlaybookConfirm": "/internal/form/run-playbook-confirm",
+    "configPlaybookSave": "/internal/form/config-playbook-save",
+    "viewHistoryDisplay": "/internal/form/view-history-dismiss"
   },
   "triggers": {
-    "onAppInstall": "/internal/triggers/on-app-install"
+    "onAppInstall": "/internal/triggers/on-app-install",
+    "onModAction": "/internal/triggers/on-mod-action"
+  },
+  "scheduler": {
+    "tasks": {
+      "dashboard-refresh": {
+        "endpoint": "/internal/scheduler/dashboard-refresh",
+        "cron": "0 * * * *"
+      },
+      "threshold-check": {
+        "endpoint": "/internal/scheduler/threshold-check",
+        "cron": "0 * * * *"
+      }
+    }
+  },
+  "settings": {
+    "subreddit": {
+      "autoEscalationEnabled": {
+        "type": "boolean",
+        "label": "Enable Auto-Escalation Alerts",
+        "helpText": "Send a modmail discussion alert when users cross offense thresholds.",
+        "defaultValue": true
+      },
+      "warningsBeforeTempBan": {
+        "type": "number",
+        "label": "Warnings Before Temp-Ban Alert",
+        "helpText": "Number of remove/warn actions within the time window before alerting the mod team. Default: 3.",
+        "defaultValue": 3
+      },
+      "tempBansBeforePermBan": {
+        "type": "number",
+        "label": "Temp Bans Before Perm-Ban Alert",
+        "helpText": "Number of temp bans within the time window before alerting the mod team. Default: 2.",
+        "defaultValue": 2
+      },
+      "timeWindowDays": {
+        "type": "number",
+        "label": "Alert Time Window (days)",
+        "helpText": "How many days back to count offenses when checking thresholds. Default: 30.",
+        "defaultValue": 30
+      }
+    }
   },
   "scripts": {
     "dev": "vite build --watch",
