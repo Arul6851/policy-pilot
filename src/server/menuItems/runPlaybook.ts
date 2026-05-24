@@ -327,11 +327,12 @@ runPlaybookForms.post('/run-playbook-confirm', async (c) => {
         break;
       case 'warn':
         if (messageText) {
-          await reddit.sendPrivateMessageAsSubreddit({
-            to: targetUsername,
+          await reddit.modMail.createConversation({
+            subredditName,
             subject: `Message from the moderators of r/${subredditName}`,
-            text: messageText,
-            fromSubredditName: subredditName,
+            body: messageText,
+            to: targetUsername,
+            isAuthorHidden: true,
           });
         }
         break;
