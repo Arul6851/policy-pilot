@@ -74,6 +74,13 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/mod-report"
+      },
+      {
+        "label": "Manage Playbooks",
+        "description": "View and delete existing PolicyPilot playbooks",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/manage-playbooks"
       }
     ]
   },
@@ -85,7 +92,9 @@
     "viewHistoryDisplay": "/internal/form/view-history-dismiss",
     "viewHistoryDetail": "/internal/form/view-history-detail",
     "previewPlaybookSelect": "/internal/form/preview-playbook-select",
-    "previewPlaybookResult": "/internal/form/preview-playbook-result"
+    "previewPlaybookResult": "/internal/form/preview-playbook-result",
+    "managePlaybookSelect": "/internal/form/manage-playbook-select",
+    "managePlaybookConfirm": "/internal/form/manage-playbook-confirm"
   },
   "triggers": {
     "onAppInstall": "/internal/triggers/on-app-install",

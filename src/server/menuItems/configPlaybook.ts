@@ -1,20 +1,35 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
-import { context, redis } from '@devvit/web/server';
-import { getAllPlaybooks, savePlaybook, getPlaybook, evaluatePlaybook } from '../services/playbookService';
+import { context, redis, reddit } from '@devvit/web/server';
+import { getAllPlaybooks, savePlaybook, getPlaybook, deletePlaybook, evaluatePlaybook } from '../services/playbookService';
 import type { ConditionValues } from '../services/playbookService';
 import { getRecentLedgerUsers, getLedgerEntriesSince } from '../services/ledgerService';
 import { getOrFetchProfile } from '../services/profileService';
 import type { Playbook, PlaybookAction, PlaybookStep, LedgerAction } from '../../shared/types';
 
-const RULE_OPTIONS = [
-  { label: 'Rule 1 — No spam or self-promotion', value: '1' },
-  { label: 'Rule 2 — Be civil and respectful', value: '2' },
-  { label: 'Rule 3 — No low-effort posts', value: '3' },
-  { label: 'Rule 4 — Stay on topic', value: '4' },
-  { label: 'Rule 5 — No misinformation', value: '5' },
-  { label: 'Rule 6 — No ban evasion', value: '6' },
+const FALLBACK_RULE_OPTIONS = [
+  { label: 'Rule 1', value: '1' },
+  { label: 'Rule 2', value: '2' },
+  { label: 'Rule 3', value: '3' },
+  { label: 'Rule 4', value: '4' },
+  { label: 'Rule 5', value: '5' },
+  { label: 'Rule 6', value: '6' },
 ];
+
+async function fetchRuleOptions(): Promise<{ label: string; value: string }[]> {
+  try {
+    const rules = await reddit.getRules(context.subredditName);
+    if (!rules.length) return FALLBACK_RULE_OPTIONS;
+    return rules
+      .sort((a, b) => a.priority - b.priority)
+      .map((r, i) => ({
+        label: `Rule ${i + 1} — ${r.shortName}`,
+        value: String(i + 1),
+      }));
+  } catch {
+    return FALLBACK_RULE_OPTIONS;
+  }
+}
 
 const FIRST_ACTION_OPTIONS = [
   { label: 'Remove content', value: 'remove' },
@@ -79,6 +94,26 @@ function previewTier(offensesOnRule: number): string {
   return 'Tier 3';
 }
 
+// ─── Manage helpers ───────────────────────────────────────────────────────────
+
+function buildManageFormSpec(playbooks: Playbook[]) {
+  return {
+    title: 'Manage Playbooks',
+    description: `${playbooks.length} playbook${playbooks.length === 1 ? '' : 's'} configured. Select one to delete.`,
+    fields: [
+      {
+        type: 'select' as const,
+        name: 'playbookId',
+        label: 'Playbook',
+        required: true,
+        options: playbooks.map((p) => ({ label: p.name, value: p.id })),
+      },
+    ],
+    acceptLabel: 'Delete Selected →',
+    cancelLabel: 'Close',
+  };
+}
+
 // ─── Menu handlers ────────────────────────────────────────────────────────────
 
 export const configPlaybookMenu = new Hono();
@@ -91,6 +126,8 @@ configPlaybookMenu.post('/config-playbook', async (c) => {
       existingNote = `\n\nExisting playbooks: ${all.map((p) => p.name).join(', ')}`;
     }
   } catch { /* non-fatal */ }
+
+  const ruleOptions = await fetchRuleOptions();
 
   return c.json<UiResponse>(
     {
@@ -114,7 +151,7 @@ configPlaybookMenu.post('/config-playbook', async (c) => {
               name: 'ruleId',
               label: 'Target Rule',
               required: true,
-              options: RULE_OPTIONS,
+              options: ruleOptions,
             },
             {
               type: 'select',
@@ -217,6 +254,20 @@ configPlaybookMenu.post('/preview-playbook', async (c) => {
   );
 });
 
+configPlaybookMenu.post('/manage-playbooks', async (c) => {
+  const playbooks = await getAllPlaybooks(redis);
+  if (!playbooks.length) {
+    return c.json<UiResponse>(
+      { showToast: 'No playbooks yet. Create one first via "Configure Playbooks".' },
+      200
+    );
+  }
+  return c.json<UiResponse>(
+    { showForm: { name: 'managePlaybookSelect', form: buildManageFormSpec(playbooks) } },
+    200
+  );
+});
+
 // ─── Form handlers ────────────────────────────────────────────────────────────
 
 export const configPlaybookForms = new Hono();
@@ -295,8 +346,12 @@ configPlaybookForms.post('/config-playbook-save', async (c) => {
 
   await savePlaybook(redis, playbook);
 
+  const allAfterSave = await getAllPlaybooks(redis);
   return c.json<UiResponse>(
-    { showToast: { text: `Playbook "${name}" created.`, appearance: 'success' } },
+    {
+      showToast: { text: `Playbook "${name}" created.`, appearance: 'success' },
+      showForm: { name: 'managePlaybookSelect', form: buildManageFormSpec(allAfterSave) },
+    },
     200
   );
 });
@@ -405,4 +460,72 @@ configPlaybookForms.post('/preview-playbook-select', async (c) => {
 // Dismiss the result form — nothing to persist
 configPlaybookForms.post('/preview-playbook-result', async (c) => {
   return c.json<UiResponse>({}, 200);
+});
+
+// ─── Manage Playbooks form handlers ──────────────────────────────────────────
+
+type ManageSelectValues = {
+  playbookId: string[];
+};
+
+// Step 1: mod picks a playbook → show delete confirmation
+configPlaybookForms.post('/manage-playbook-select', async (c) => {
+  const body = await c.req.json<ManageSelectValues>();
+  const playbookId = body.playbookId?.[0];
+  if (!playbookId) {
+    return c.json<UiResponse>({ showToast: 'Please select a playbook.' }, 200);
+  }
+
+  const playbook = await getPlaybook(redis, playbookId);
+  if (!playbook) {
+    return c.json<UiResponse>({ showToast: 'Playbook not found — it may have already been deleted.' }, 200);
+  }
+
+  return c.json<UiResponse>(
+    {
+      showForm: {
+        name: 'managePlaybookConfirm',
+        form: {
+          title: 'Confirm Delete',
+          description: `Delete "${playbook.name}"?\n\nThis cannot be undone. Any mod currently mid-flow with this playbook will receive an error.`,
+          fields: [
+            {
+              type: 'string',
+              name: '_playbookId',
+              label: 'Playbook ID',
+              helpText: 'System field — do not edit',
+              defaultValue: playbookId,
+              required: true,
+            },
+          ],
+          acceptLabel: 'Delete Playbook',
+          cancelLabel: 'Cancel',
+        },
+      },
+    },
+    200
+  );
+});
+
+// Step 2: mod confirms → delete
+type ManageConfirmValues = {
+  _playbookId: string;
+};
+
+configPlaybookForms.post('/manage-playbook-confirm', async (c) => {
+  const body = await c.req.json<ManageConfirmValues>();
+  const playbookId = body._playbookId?.trim();
+  if (!playbookId) {
+    return c.json<UiResponse>({ showToast: 'Session error — please try again.' }, 200);
+  }
+
+  const playbook = await getPlaybook(redis, playbookId);
+  const name = playbook?.name ?? playbookId;
+
+  await deletePlaybook(redis, playbookId);
+
+  return c.json<UiResponse>(
+    { showToast: { text: `Playbook "${name}" deleted.`, appearance: 'success' } },
+    200
+  );
 });

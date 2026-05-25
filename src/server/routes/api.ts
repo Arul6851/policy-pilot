@@ -2,8 +2,6 @@ import { Hono } from 'hono';
 import { context, redis, reddit } from '@devvit/web/server';
 import type {
   DashboardResponse,
-  DecrementResponse,
-  IncrementResponse,
   InitResponse,
 } from '../../shared/api';
 import { getCachedMetrics, computeDailyMetrics, saveDailyMetrics } from '../services/metricsService';
@@ -87,42 +85,3 @@ api.get('/init', async (c) => {
   }
 });
 
-api.post('/increment', async (c) => {
-  const { postId } = context;
-  if (!postId) {
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
-    );
-  }
-
-  const count = await redis.incrBy('count', 1);
-  return c.json<IncrementResponse>({
-    count,
-    postId,
-    type: 'increment',
-  });
-});
-
-api.post('/decrement', async (c) => {
-  const { postId } = context;
-  if (!postId) {
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
-    );
-  }
-
-  const count = await redis.incrBy('count', -1);
-  return c.json<DecrementResponse>({
-    count,
-    postId,
-    type: 'decrement',
-  });
-});
