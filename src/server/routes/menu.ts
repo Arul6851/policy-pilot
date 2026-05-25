@@ -5,12 +5,14 @@ import { createPost } from '../core/post';
 import { runPlaybookMenu } from '../menuItems/runPlaybook';
 import { configPlaybookMenu } from '../menuItems/configPlaybook';
 import { viewHistoryMenu } from '../menuItems/viewHistory';
+import { modReportMenu } from '../menuItems/modReport';
 
 export const menu = new Hono();
 
 menu.route('', runPlaybookMenu);
 menu.route('', configPlaybookMenu);
 menu.route('', viewHistoryMenu);
+menu.route('', modReportMenu);
 
 menu.post('/post-create', async (c) => {
   try {

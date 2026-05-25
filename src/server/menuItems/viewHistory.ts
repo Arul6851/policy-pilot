@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { isT1, isT3 } from '@devvit/web/shared';
 import type { MenuItemRequest, UiResponse } from '@devvit/web/shared';
-import { context, redis, reddit } from '@devvit/web/server';
+import { redis, reddit } from '@devvit/web/server';
 import { getLedgerEntries, getLedgerEntriesSince } from '../services/ledgerService';
 import { getOrFetchProfile } from '../services/profileService';
 import type { LedgerEntry, LedgerAction, CachedProfile } from '../../shared/types';
@@ -19,6 +19,53 @@ const ACTION_ICON: Record<LedgerAction, string> = {
   note: '📝',
 };
 
+// ─── Risk level ───────────────────────────────────────────────────────────────
+
+type RiskLevel = 'clean' | 'watched' | 'escalation';
+
+function computeRisk(offenseCount: number): RiskLevel {
+  if (offenseCount === 0) return 'clean';
+  if (offenseCount <= 2) return 'watched';
+  return 'escalation';
+}
+
+function formatKarma(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function buildToastText(username: string, risk: RiskLevel, offenseCount: number, accountAgeDays: number, karma: number): string {
+  const icon = risk === 'clean' ? '🟢' : risk === 'watched' ? '🟡' : '🔴';
+  const label =
+    risk === 'clean'
+      ? 'Clean'
+      : risk === 'watched'
+        ? `Watched (${offenseCount} offense${offenseCount === 1 ? '' : 's'})`
+        : `Escalation Zone (${offenseCount} offenses)`;
+  return `${icon} u/${username} — ${label} | Account: ${accountAgeDays}d | Karma: ${formatKarma(karma)}`;
+}
+
+function buildQuickSummary(username: string, risk: RiskLevel, offenseCount: number, profile: CachedProfile): string {
+  const riskLine =
+    risk === 'clean'
+      ? '🟢  No offenses in the last 30 days.'
+      : risk === 'watched'
+        ? `🟡  ${offenseCount} offense${offenseCount === 1 ? '' : 's'} in the last 30 days — monitor closely.`
+        : `🔴  ${offenseCount} offenses in the last 30 days — escalation candidate.`;
+
+  return [
+    riskLine,
+    '',
+    `Account age : ${profile.accountAgeDays} days`,
+    `Karma       : ${profile.karma.toLocaleString()}`,
+    '',
+    'Accept to view the complete action log and playbook history.',
+  ].join('\n');
+}
+
+// ─── Helpers shared with detail view ─────────────────────────────────────────
+
 function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString('en-US', {
     month: 'short',
@@ -34,18 +81,16 @@ function formatEntry(e: LedgerEntry): string {
   return `${icon} ${e.action.padEnd(7)} ${formatDate(e.timestamp)}  ${rule}  by u/${e.modId}${pb}`;
 }
 
-function buildDescription(
+function buildFullDescription(
   profile: CachedProfile,
   recentEntries: LedgerEntry[],
   offenseEntries: LedgerEntry[]
 ): string {
-  // ── Profile summary ──────────────────────────────────────────────────────
   const profileBlock = [
     `Account age : ${profile.accountAgeDays} days`,
     `Karma       : ${profile.karma.toLocaleString()}`,
   ].join('\n');
 
-  // ── Offense breakdown (30 days) ───────────────────────────────────────────
   const byRule: Record<string, number> = {};
   for (const e of offenseEntries) {
     const key = e.ruleId || 'unknown';
@@ -61,7 +106,6 @@ function buildDescription(
 
   const playbookCount = recentEntries.filter((e) => e.usedPlaybook).length;
 
-  // ── Recent entry list ─────────────────────────────────────────────────────
   const entryLines =
     recentEntries.length === 0
       ? '  (no history)'
@@ -105,31 +149,83 @@ viewHistoryMenu.post('/view-history', async (c) => {
     return c.json<UiResponse>({ showToast: 'Could not identify content author.' }, 200);
   }
 
-  // Fetch profile and ledger data in parallel
   const since = Date.now() - OFFENSE_WINDOW_MS;
-  const [profile, allEntries, sinceEntries] = await Promise.all([
+  const [profile, sinceEntries] = await Promise.all([
     getOrFetchProfile(redis, authorName),
-    getLedgerEntries(redis, authorName, HISTORY_DISPLAY_LIMIT),
     getLedgerEntriesSince(redis, authorName, since),
   ]);
 
   const offenseEntries = sinceEntries.filter((e) => OFFENSE_ACTIONS.has(e.action));
-  const description = buildDescription(profile, allEntries, offenseEntries);
+  const risk = computeRisk(offenseEntries.length);
+  const toastText = buildToastText(authorName, risk, offenseEntries.length, profile.accountAgeDays, profile.karma);
+  const quickSummary = buildQuickSummary(authorName, risk, offenseEntries.length, profile);
 
-  const mod = context.username ?? 'mod';
+  return c.json<UiResponse>(
+    {
+      showToast: toastText,
+      showForm: {
+        name: 'viewHistoryDisplay',
+        form: {
+          title: `u/${authorName} — Risk Check`,
+          description: quickSummary,
+          fields: [
+            {
+              type: 'string',
+              name: '_username',
+              label: 'Username',
+              helpText: 'System field — do not edit',
+              defaultValue: authorName,
+              required: true,
+            },
+          ],
+          acceptLabel: 'View Full History',
+          cancelLabel: 'Dismiss',
+        },
+      },
+    },
+    200
+  );
+});
+
+// ─── Form handlers ────────────────────────────────────────────────────────────
+
+export const viewHistoryForms = new Hono();
+
+type QuickSummaryValues = {
+  _username: string;
+};
+
+// "View Full History" button — fetch full ledger and show detail form
+viewHistoryForms.post('/view-history-dismiss', async (c) => {
+  const body = await c.req.json<QuickSummaryValues>();
+  const username = body._username?.trim();
+
+  if (!username) {
+    return c.json<UiResponse>({ showToast: 'Session error — please try again.' }, 200);
+  }
+
+  const since = Date.now() - OFFENSE_WINDOW_MS;
+  const [profile, allEntries, sinceEntries] = await Promise.all([
+    getOrFetchProfile(redis, username),
+    getLedgerEntries(redis, username, HISTORY_DISPLAY_LIMIT),
+    getLedgerEntriesSince(redis, username, since),
+  ]);
+
+  const offenseEntries = sinceEntries.filter((e) => OFFENSE_ACTIONS.has(e.action));
+  const description = buildFullDescription(profile, allEntries, offenseEntries);
 
   return c.json<UiResponse>(
     {
       showForm: {
-        name: 'viewHistoryDisplay',
+        name: 'viewHistoryDetail',
         form: {
-          title: `History — u/${authorName}`,
+          title: `History — u/${username}`,
           description,
           fields: [
             {
               type: 'boolean',
               name: 'reviewed',
-              label: `Reviewed by u/${mod}`,
+              label: 'Mark as reviewed',
               defaultValue: true,
             },
           ],
@@ -142,11 +238,7 @@ viewHistoryMenu.post('/view-history', async (c) => {
   );
 });
 
-// ─── Form handler: POST /view-history-dismiss ─────────────────────────────────
-// The "Close" button submits here — nothing to persist, just acknowledge.
-
-export const viewHistoryForms = new Hono();
-
-viewHistoryForms.post('/view-history-dismiss', async (c) => {
+// "Close" on the detail form — nothing to persist
+viewHistoryForms.post('/view-history-detail', async (c) => {
   return c.json<UiResponse>({}, 200);
 });
