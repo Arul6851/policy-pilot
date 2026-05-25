@@ -1,10 +1,31 @@
 import type { RedisClient } from '@devvit/redis';
+import type { RedditClient } from '@devvit/reddit';
+import { ToolboxClient } from 'toolbox-devvit';
 import type { LedgerEntry, LedgerAction } from '../../shared/types';
 import { LEDGER_KEY, LEDGER_USERS_KEY } from '../utils/redisKeys';
 
 const OFFENSE_ACTIONS: Set<LedgerAction> = new Set(['remove', 'warn', 'tempban', 'permban']);
 
-export async function addLedgerEntry(redis: RedisClient, entry: LedgerEntry): Promise<void> {
+// Actions worth syncing to Toolbox — exclude benign ones (approve, note)
+const TOOLBOX_SYNC_ACTIONS: Set<LedgerAction> = new Set(['remove', 'warn', 'tempban', 'permban']);
+
+export type ToolboxSyncContext = {
+  reddit: RedditClient;
+  subredditName: string;
+};
+
+function buildUsernoteText(entry: LedgerEntry): string {
+  const parts: string[] = [entry.action.toUpperCase()];
+  if (entry.ruleId) parts.push(`Rule ${entry.ruleId}`);
+  if (entry.usedPlaybook) parts.push('playbook');
+  return parts.join(' | ');
+}
+
+export async function addLedgerEntry(
+  redis: RedisClient,
+  entry: LedgerEntry,
+  toolbox?: ToolboxSyncContext,
+): Promise<void> {
   await Promise.all([
     redis.zAdd(LEDGER_KEY(entry.userId), {
       score: entry.timestamp,
@@ -15,6 +36,25 @@ export async function addLedgerEntry(redis: RedisClient, entry: LedgerEntry): Pr
       member: entry.userId,
     }),
   ]);
+
+  // Sync to Toolbox usernotes if the sub uses Toolbox — fail silently if not
+  if (
+    toolbox &&
+    entry.modId !== 'PolicyPilot' &&
+    TOOLBOX_SYNC_ACTIONS.has(entry.action)
+  ) {
+    try {
+      const client = new ToolboxClient(toolbox.reddit);
+      await client.addUsernote(toolbox.subredditName, {
+        username: entry.userId,
+        text: buildUsernoteText(entry),
+        moderatorUsername: entry.modId,
+        timestamp: new Date(entry.timestamp),
+      });
+    } catch {
+      // Toolbox wiki pages absent or write failed — no-op
+    }
+  }
 }
 
 export async function getLedgerEntries(

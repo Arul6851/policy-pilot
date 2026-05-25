@@ -28,6 +28,7 @@ export type PlaybookAction = {
   type: PlaybookActionType;
   duration?: number;
   messageTemplate?: string;
+  postModComment?: boolean;
   logToLedger: boolean;
 };
 
