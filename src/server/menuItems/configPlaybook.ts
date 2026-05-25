@@ -1,8 +1,11 @@
 import { Hono } from 'hono';
 import type { UiResponse } from '@devvit/web/shared';
 import { context, redis } from '@devvit/web/server';
-import { getAllPlaybooks, savePlaybook } from '../services/playbookService';
-import type { Playbook, PlaybookAction, PlaybookStep } from '../../shared/types';
+import { getAllPlaybooks, savePlaybook, getPlaybook, evaluatePlaybook } from '../services/playbookService';
+import type { ConditionValues } from '../services/playbookService';
+import { getRecentLedgerUsers, getLedgerEntriesSince } from '../services/ledgerService';
+import { getOrFetchProfile } from '../services/profileService';
+import type { Playbook, PlaybookAction, PlaybookStep, LedgerAction } from '../../shared/types';
 
 const RULE_OPTIONS = [
   { label: 'Rule 1 — No spam or self-promotion', value: '1' },
@@ -57,7 +60,26 @@ function buildAction(val: string, messageTemplate?: string, postModComment?: boo
   }
 }
 
-// ─── Menu handler: POST /config-playbook ─────────────────────────────────────
+// ─── Preview helpers ──────────────────────────────────────────────────────────
+
+const PREVIEW_LIMIT = 15;
+const PREVIEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const PREVIEW_OFFENSE_ACTIONS: Set<LedgerAction> = new Set(['remove', 'warn', 'tempban', 'permban']);
+
+function previewActionLabel(action: PlaybookAction): string {
+  if (action.type === 'tempban') {
+    return action.duration ? `tempban ${action.duration}d` : 'tempban';
+  }
+  return action.type;
+}
+
+function previewTier(offensesOnRule: number): string {
+  if (offensesOnRule === 0) return 'Tier 1';
+  if (offensesOnRule === 1) return 'Tier 2';
+  return 'Tier 3';
+}
+
+// ─── Menu handlers ────────────────────────────────────────────────────────────
 
 export const configPlaybookMenu = new Hono();
 
@@ -162,7 +184,40 @@ configPlaybookMenu.post('/config-playbook', async (c) => {
   );
 });
 
-// ─── Form handler: POST /config-playbook-save ─────────────────────────────────
+configPlaybookMenu.post('/preview-playbook', async (c) => {
+  const playbooks = await getAllPlaybooks(redis);
+  if (!playbooks.length) {
+    return c.json<UiResponse>(
+      { showToast: 'No playbooks found. Create one first via "Configure Playbooks".' },
+      200
+    );
+  }
+
+  return c.json<UiResponse>(
+    {
+      showForm: {
+        name: 'previewPlaybookSelect',
+        form: {
+          title: 'Preview Playbook',
+          description: `Simulate a playbook against the ${PREVIEW_LIMIT} most-recently-actioned users. No actions will be taken — results show what the playbook would recommend today.`,
+          fields: [
+            {
+              type: 'select',
+              name: 'playbookId',
+              label: 'Playbook to preview',
+              required: true,
+              options: playbooks.map((p) => ({ label: p.name, value: p.id })),
+            },
+          ],
+          acceptLabel: 'Run Preview →',
+        },
+      },
+    },
+    200
+  );
+});
+
+// ─── Form handlers ────────────────────────────────────────────────────────────
 
 export const configPlaybookForms = new Hono();
 
@@ -244,4 +299,110 @@ configPlaybookForms.post('/config-playbook-save', async (c) => {
     { showToast: { text: `Playbook "${name}" created.`, appearance: 'success' } },
     200
   );
+});
+
+// ─── Preview form handlers ────────────────────────────────────────────────────
+
+type PreviewSelectValues = {
+  playbookId: string[];
+};
+
+configPlaybookForms.post('/preview-playbook-select', async (c) => {
+  const body = await c.req.json<PreviewSelectValues>();
+  const playbookId = body.playbookId?.[0];
+  if (!playbookId) {
+    return c.json<UiResponse>({ showToast: 'Please select a playbook.' }, 200);
+  }
+
+  const playbook = await getPlaybook(redis, playbookId);
+  if (!playbook) {
+    return c.json<UiResponse>({ showToast: 'Playbook not found.' }, 200);
+  }
+
+  const since = Date.now() - PREVIEW_WINDOW_MS;
+  const allUserIds = await getRecentLedgerUsers(redis, since);
+  const previewIds = allUserIds.slice(0, PREVIEW_LIMIT);
+
+  if (!previewIds.length) {
+    return c.json<UiResponse>(
+      {
+        showForm: {
+          name: 'previewPlaybookResult',
+          form: {
+            title: `Preview — ${playbook.name}`,
+            description: 'No users with ledger activity in the last 30 days. Take some mod actions first, then re-run the preview.',
+            fields: [{ type: 'boolean', name: 'ack', label: 'Acknowledged', defaultValue: true }],
+            acceptLabel: 'Close',
+          },
+        },
+      },
+      200
+    );
+  }
+
+  // Evaluate playbook for each user — read-only, no side effects
+  const rows = await Promise.all(
+    previewIds.map(async (userId) => {
+      const [profile, entries] = await Promise.all([
+        getOrFetchProfile(redis, userId),
+        getLedgerEntriesSince(redis, userId, since),
+      ]);
+
+      const offensesByRule: Record<string, number> = { '': 0 };
+      for (const e of entries) {
+        if (PREVIEW_OFFENSE_ACTIONS.has(e.action)) {
+          offensesByRule[''] = (offensesByRule[''] ?? 0) + 1;
+          if (e.ruleId) offensesByRule[e.ruleId] = (offensesByRule[e.ruleId] ?? 0) + 1;
+        }
+      }
+
+      const values: ConditionValues = {
+        accountAgeDays: profile.accountAgeDays,
+        karma: profile.karma,
+        isSubscriber: profile.isSubscriber,
+        offensesByRule,
+      };
+
+      const result = evaluatePlaybook(playbook, values);
+      const offensesOnRule = offensesByRule[playbook.ruleId] ?? 0;
+
+      return { userId, result, offensesOnRule };
+    })
+  );
+
+  const resultLines = rows.map(({ userId, result, offensesOnRule }) => {
+    if (!result) return `u/${userId} → No action`;
+    const tier = previewTier(offensesOnRule);
+    const action = previewActionLabel(result.action);
+    return `u/${userId} → ${tier} (${action})`;
+  });
+
+  const description = [
+    `Playbook: "${playbook.name}" · Rule ${playbook.ruleId}`,
+    `Simulated against ${rows.length} user${rows.length === 1 ? '' : 's'} (last 30 days of ledger data)`,
+    '─────────────────────────────────────',
+    ...resultLines,
+    '─────────────────────────────────────',
+    'No actions were taken. This is a dry-run only.',
+  ].join('\n');
+
+  return c.json<UiResponse>(
+    {
+      showForm: {
+        name: 'previewPlaybookResult',
+        form: {
+          title: `Preview — ${playbook.name}`,
+          description,
+          fields: [{ type: 'boolean', name: 'ack', label: 'Results reviewed', defaultValue: true }],
+          acceptLabel: 'Close',
+        },
+      },
+    },
+    200
+  );
+});
+
+// Dismiss the result form — nothing to persist
+configPlaybookForms.post('/preview-playbook-result', async (c) => {
+  return c.json<UiResponse>({}, 200);
 });

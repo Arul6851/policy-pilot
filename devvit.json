@@ -60,6 +60,20 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
+      },
+      {
+        "label": "Preview Playbook",
+        "description": "Simulate a playbook against recent users without taking action",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/preview-playbook"
+      },
+      {
+        "label": "Generate Mod Report",
+        "description": "Post a 7-day moderation summary to the subreddit",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/mod-report"
       }
     ]
   },
@@ -68,7 +82,10 @@
     "runPlaybookSelect": "/internal/form/run-playbook-evaluate",
     "runPlaybookConfirm": "/internal/form/run-playbook-confirm",
     "configPlaybookSave": "/internal/form/config-playbook-save",
-    "viewHistoryDisplay": "/internal/form/view-history-dismiss"
+    "viewHistoryDisplay": "/internal/form/view-history-dismiss",
+    "viewHistoryDetail": "/internal/form/view-history-detail",
+    "previewPlaybookSelect": "/internal/form/preview-playbook-select",
+    "previewPlaybookResult": "/internal/form/preview-playbook-result"
   },
   "triggers": {
     "onAppInstall": "/internal/triggers/on-app-install",
