@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { OnModActionRequest, TriggerResponse } from '@devvit/web/shared';
-import { redis } from '@devvit/web/server';
+import { context, redis, reddit } from '@devvit/web/server';
 import { addLedgerEntry } from '../services/ledgerService';
 import type { LedgerEntry, LedgerAction } from '../../shared/types';
 
@@ -50,7 +50,10 @@ onModActionTrigger.post('/on-mod-action', async (c) => {
     timestamp,
   };
 
-  await addLedgerEntry(redis, entry);
+  await addLedgerEntry(redis, entry, {
+    reddit,
+    subredditName: context.subredditName,
+  });
 
   return c.json<TriggerResponse>({}, 200);
 });

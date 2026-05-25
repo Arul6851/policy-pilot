@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { isT1, isT3 } from '@devvit/web/shared';
+import { isT1, isT3, type T3 } from '@devvit/web/shared';
 import type { FormField, MenuItemRequest, UiResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
 import {
@@ -16,11 +16,28 @@ import type { LedgerAction, LedgerEntry, PlaybookAction } from '../../shared/typ
 const OFFENSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_TTL_SECS = 900;
 
+const RULE_NAMES: Record<string, string> = {
+  '1': 'No spam or self-promotion',
+  '2': 'Be civil and respectful',
+  '3': 'No low-effort or duplicate posts',
+  '4': 'Stay on topic',
+  '5': 'No misinformation or misleading content',
+  '6': 'No ban evasion or alt account abuse',
+};
+
+function defaultRemovalComment(ruleId: string): string {
+  const name = RULE_NAMES[ruleId];
+  const ref = name ? `Rule ${ruleId}: ${name}` : ruleId ? `Rule ${ruleId}` : 'community rules';
+  return `Your submission was removed for violating **${ref}**.\n\nPlease review the subreddit rules before posting again.`;
+}
+
 type PbSession = {
   targetUsername: string;
   accountAgeDays: number;
   karma: number;
   isSubscriber: boolean;
+  playbookRuleId: string;
+  postModComment: boolean;
 };
 
 function pbSessionKey(mod: string, targetId: string): string {
@@ -120,6 +137,8 @@ runPlaybookMenu.post('/run-playbook', async (c) => {
     accountAgeDays: profile.accountAgeDays,
     karma: profile.karma,
     isSubscriber: profile.isSubscriber,
+    playbookRuleId: '',
+    postModComment: false,
   };
   const key = pbSessionKey(mod, targetId);
   await redis.set(key, JSON.stringify(session));
@@ -218,6 +237,15 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
   const { action, reasoning } = result;
   const recommendedValue = encodeAction(action);
 
+  // Persist ruleId and postModComment so the confirm handler can act on them
+  const enrichedSession: PbSession = {
+    ...session,
+    playbookRuleId: playbook.ruleId,
+    postModComment: action.postModComment ?? false,
+  };
+  await redis.set(pbSessionKey(mod, targetId), JSON.stringify(enrichedSession));
+  await redis.expire(pbSessionKey(mod, targetId), SESSION_TTL_SECS);
+
   const description = [
     `User: u/${session.targetUsername}`,
     `Playbook: ${playbook.name}`,
@@ -239,12 +267,13 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
     },
   ];
 
-  if (action.messageTemplate) {
+  if (action.messageTemplate || action.postModComment) {
+    const isRemovalComment = action.postModComment && action.type === 'remove';
     fields.push({
       type: 'paragraph',
       name: 'message',
-      label: 'Message to user (optional)',
-      defaultValue: action.messageTemplate,
+      label: isRemovalComment ? 'Removal reason (posted as mod comment)' : 'Message to user (optional)',
+      defaultValue: action.messageTemplate ?? (isRemovalComment ? defaultRemovalComment(playbook.ruleId) : ''),
     });
   }
 
@@ -320,6 +349,19 @@ runPlaybookForms.post('/run-playbook-confirm', async (c) => {
       case 'remove':
         if (isT3(targetId)) await reddit.remove(targetId, false);
         else if (isT1(targetId)) await reddit.remove(targetId, false);
+        if (isT3(targetId) && session.postModComment) {
+          const commentText = messageText || defaultRemovalComment(session.playbookRuleId);
+          try {
+            const modComment = await reddit.submitComment({
+              id: targetId as T3,
+              text: commentText,
+              runAs: 'USER',
+            });
+            await modComment.distinguish(true);
+          } catch (err) {
+            console.error('PolicyPilot: failed to post mod comment', err);
+          }
+        }
         break;
       case 'approve':
         if (isT3(targetId)) await reddit.approve(targetId);
@@ -375,7 +417,10 @@ runPlaybookForms.post('/run-playbook-confirm', async (c) => {
     usedPlaybook: true,
     timestamp: Date.now(),
   };
-  await addLedgerEntry(redis, entry);
+  await addLedgerEntry(redis, entry, {
+    reddit,
+    subredditName,
+  });
 
   const label = ACTION_LABELS[actionValue] ?? ledgerAction;
   return c.json<UiResponse>(

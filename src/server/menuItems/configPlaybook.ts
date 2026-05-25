@@ -40,7 +40,7 @@ const NEW_ACCOUNT_ACTION_OPTIONS = [
   { label: 'Permanent ban', value: 'permban' },
 ];
 
-function buildAction(val: string, messageTemplate?: string): PlaybookAction {
+function buildAction(val: string, messageTemplate?: string, postModComment?: boolean): PlaybookAction {
   if (val.startsWith('tempban-')) {
     return {
       type: 'tempban',
@@ -50,7 +50,7 @@ function buildAction(val: string, messageTemplate?: string): PlaybookAction {
     };
   }
   switch (val) {
-    case 'remove': return { type: 'remove', logToLedger: true };
+    case 'remove': return { type: 'remove', messageTemplate, postModComment: postModComment ?? false, logToLedger: true };
     case 'warn': return { type: 'warn', messageTemplate, logToLedger: true };
     case 'permban': return { type: 'permban', messageTemplate, logToLedger: true };
     default: return { type: 'note', logToLedger: true };
@@ -122,7 +122,14 @@ configPlaybookMenu.post('/config-playbook', async (c) => {
               type: 'paragraph',
               name: 'messageTemplate',
               label: 'Message Template (optional)',
-              helpText: 'Sent to user for warn/ban actions.',
+              helpText: 'Sent to user for warn/ban actions, and used as the removal reason comment if enabled below.',
+            },
+            {
+              type: 'boolean',
+              name: 'postModComment',
+              label: 'Post distinguished removal reason comment',
+              helpText: 'When a "remove" action runs, automatically post a distinguished mod comment on the post with the message template above as the removal reason.',
+              defaultValue: false,
             },
             // ── Account age gate ─────────────────────────────────────────────
             {
@@ -166,6 +173,7 @@ type ConfigFormValues = {
   secondAction: string[];
   thirdAction: string[];
   messageTemplate?: string;
+  postModComment?: boolean;
   newAccountGate?: boolean;
   newAccountDays?: number;
   newAccountAction?: string[];
@@ -180,6 +188,7 @@ configPlaybookForms.post('/config-playbook-save', async (c) => {
   const secondVal = body.secondAction?.[0] ?? 'warn';
   const thirdVal = body.thirdAction?.[0] ?? 'tempban-7';
   const messageTemplate = body.messageTemplate?.trim() || undefined;
+  const postModComment = body.postModComment === true;
   const newAccountGate = body.newAccountGate === true;
   const newAccountDays = body.newAccountDays ?? 30;
   const newAccountActionVal = body.newAccountAction?.[0] ?? 'tempban-1';
@@ -195,14 +204,14 @@ configPlaybookForms.post('/config-playbook-save', async (c) => {
     {
       id: 'step-offense-1',
       condition: { type: 'priorOffenses', operator: 'lt', value: 1, ruleScope: ruleId },
-      trueAction: buildAction(firstVal, messageTemplate),
+      trueAction: buildAction(firstVal, messageTemplate, postModComment),
       falseAction: { nextStepId: 'step-offense-2' },
     },
     {
       id: 'step-offense-2',
       condition: { type: 'priorOffenses', operator: 'lt', value: 2, ruleScope: ruleId },
-      trueAction: buildAction(secondVal, messageTemplate),
-      falseAction: buildAction(thirdVal, messageTemplate),
+      trueAction: buildAction(secondVal, messageTemplate, postModComment),
+      falseAction: buildAction(thirdVal, messageTemplate, postModComment),
     },
   ];
 
@@ -213,7 +222,7 @@ configPlaybookForms.post('/config-playbook-save', async (c) => {
         {
           id: 'step-age',
           condition: { type: 'accountAge', operator: 'lt', value: newAccountDays },
-          trueAction: buildAction(newAccountActionVal, messageTemplate),
+          trueAction: buildAction(newAccountActionVal, messageTemplate, postModComment),
           falseAction: { nextStepId: 'step-offense-1' },
         },
         ...offenseSteps,
