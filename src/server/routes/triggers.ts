@@ -6,6 +6,13 @@ import { onModActionTrigger } from '../triggers/onModAction';
 
 export const triggers = new Hono();
 
+// Triggers must always return 200 — a non-200 causes Reddit to retry or drop
+// the event. This catches any unhandled throw from any trigger route.
+triggers.onError((err, c) => {
+  console.error('PolicyPilot trigger unhandled error:', err);
+  return c.json<TriggerResponse>({}, 200);
+});
+
 triggers.route('', onModActionTrigger);
 
 triggers.post('/on-app-install', async (c) => {
