@@ -26,16 +26,17 @@ export async function addLedgerEntry(
   entry: LedgerEntry,
   toolbox?: ToolboxSyncContext,
 ): Promise<void> {
-  await Promise.all([
-    redis.zAdd(LEDGER_KEY(entry.userId), {
-      score: entry.timestamp,
-      member: JSON.stringify(entry),
-    }),
-    redis.zAdd(LEDGER_USERS_KEY, {
-      score: entry.timestamp,
-      member: entry.userId,
-    }),
-  ]);
+  // Write the full entry first, then update the secondary index.
+  // Sequential (not Promise.all) so a partial failure is clearly identified
+  // in the error message — caller wraps this in try-catch.
+  await redis.zAdd(LEDGER_KEY(entry.userId), {
+    score: entry.timestamp,
+    member: JSON.stringify(entry),
+  });
+  await redis.zAdd(LEDGER_USERS_KEY, {
+    score: entry.timestamp,
+    member: entry.userId,
+  });
 
   // Sync to Toolbox usernotes if the sub uses Toolbox — fail silently if not
   if (

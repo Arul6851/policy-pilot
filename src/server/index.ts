@@ -11,6 +11,11 @@ import { thresholdCheckerRoutes } from './scheduler/thresholdChecker';
 const app = new Hono();
 const internal = new Hono();
 
+app.onError((err, c) => {
+  console.error('PolicyPilot unhandled error:', err);
+  return c.json({ error: 'internal server error' }, 500);
+});
+
 internal.route('/menu', menu);
 internal.route('/form', forms);
 internal.route('/triggers', triggers);

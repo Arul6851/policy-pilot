@@ -50,10 +50,17 @@ onModActionTrigger.post('/on-mod-action', async (c) => {
     timestamp,
   };
 
-  await addLedgerEntry(redis, entry, {
-    reddit,
-    subredditName: context.subredditName,
-  });
+  try {
+    await addLedgerEntry(redis, entry, {
+      reddit,
+      subredditName: context.subredditName,
+    });
+  } catch (err) {
+    // Transient Redis failure (e.g. ECONNRESET) — log and swallow so the
+    // trigger always returns 200. A 500 here causes Reddit to retry or drop
+    // the event entirely, which is worse than a missed ledger entry.
+    console.error('PolicyPilot onModAction: ledger write failed', err);
+  }
 
   return c.json<TriggerResponse>({}, 200);
 });
