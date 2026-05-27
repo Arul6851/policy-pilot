@@ -33,7 +33,9 @@ onModActionTrigger.post('/on-mod-action', async (c) => {
   const userId = event.targetUser?.name;
   const rawAction = event.action;
 
-  if (!userId || !rawAction) {
+  // Skip if no target user, no action, or the target is a mod-team bot account
+  if (!userId || !rawAction || userId.endsWith('-ModTeam')) {
+    console.error('PolicyPilot onModAction: skipping event', { userId, rawAction });
     return c.json<TriggerResponse>({}, 200);
   }
 
@@ -50,16 +52,19 @@ onModActionTrigger.post('/on-mod-action', async (c) => {
     timestamp,
   };
 
+  console.error(`PolicyPilot onModAction: ${rawAction} → ${entry.action} | user=u/${userId} | mod=u/${entry.modId}`);
+
   try {
     await addLedgerEntry(redis, entry, {
       reddit,
       subredditName: context.subredditName,
     });
+    console.error(`PolicyPilot onModAction: ledger write OK | id=${entry.id}`);
   } catch (err) {
     // Transient Redis failure (e.g. ECONNRESET) — log and swallow so the
     // trigger always returns 200. A 500 here causes Reddit to retry or drop
     // the event entirely, which is worse than a missed ledger entry.
-    console.error('PolicyPilot onModAction: ledger write failed', err);
+    console.error('PolicyPilot onModAction: ledger write FAILED', err);
   }
 
   return c.json<TriggerResponse>({}, 200);
