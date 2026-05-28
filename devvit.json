@@ -140,6 +140,11 @@
       }
     }
   },
+  "permissions": {
+    "reddit": {
+      "asUser": true
+    }
+  },
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build"
