@@ -142,7 +142,7 @@
   },
   "permissions": {
     "reddit": {
-      "asUser": true
+      "asUser": ["SUBMIT_COMMENT"]
     }
   },
   "scripts": {
