@@ -63,12 +63,16 @@ export async function getLedgerEntries(
   userId: string,
   limit = 50
 ): Promise<LedgerEntry[]> {
-  const results = await redis.zRange(LEDGER_KEY(userId), '+inf', '-inf', {
+  // Fetch all entries ascending then reverse in JS — avoids the
+  // '+inf'/'-inf' + reverse:true score-range combination which returns
+  // empty in the Devvit Redis client.
+  const results = await redis.zRange(LEDGER_KEY(userId), 0, '+inf', {
     by: 'score',
-    reverse: true,
-    limit: { offset: 0, count: limit },
   });
-  return results.map((r) => JSON.parse(r.member) as LedgerEntry);
+  return results
+    .map((r) => JSON.parse(r.member) as LedgerEntry)
+    .reverse()
+    .slice(0, limit);
 }
 
 export async function getLedgerEntriesSince(

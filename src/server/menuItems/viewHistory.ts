@@ -49,19 +49,16 @@ function buildToastText(username: string, risk: RiskLevel, offenseCount: number,
 function buildQuickSummary(username: string, risk: RiskLevel, offenseCount: number, profile: CachedProfile): string {
   const riskLine =
     risk === 'clean'
-      ? '🟢  No offenses in the last 30 days.'
+      ? '🟢 No offenses in the last 30 days.'
       : risk === 'watched'
-        ? `🟡  ${offenseCount} offense${offenseCount === 1 ? '' : 's'} in the last 30 days — monitor closely.`
-        : `🔴  ${offenseCount} offenses in the last 30 days — escalation candidate.`;
+        ? `🟡 ${offenseCount} offense${offenseCount === 1 ? '' : 's'} in the last 30 days — monitor closely.`
+        : `🔴 ${offenseCount} offenses in the last 30 days — escalation candidate.`;
 
   return [
     riskLine,
-    '',
-    `Account age : ${profile.accountAgeDays} days`,
-    `Karma       : ${profile.karma.toLocaleString()}`,
-    '',
-    'Accept to view the complete action log and playbook history.',
-  ].join('\n');
+    `Age: ${profile.accountAgeDays} days  ·  Karma: ${profile.karma.toLocaleString()}`,
+    'Tap "View Full History" for the complete action log.',
+  ].join('\n\n');
 }
 
 // ─── Helpers shared with detail view ─────────────────────────────────────────
@@ -81,48 +78,53 @@ function formatEntry(e: LedgerEntry): string {
   return `${icon} ${e.action.padEnd(7)} ${formatDate(e.timestamp)}  ${rule}  by u/${e.modId}${pb}`;
 }
 
+type FullDescription = { summary: string; actionLog: string };
+
 function buildFullDescription(
   profile: CachedProfile,
   recentEntries: LedgerEntry[],
   offenseEntries: LedgerEntry[]
-): string {
-  const profileBlock = [
-    `Account age : ${profile.accountAgeDays} days`,
-    `Karma       : ${profile.karma.toLocaleString()}`,
-  ].join('\n');
-
+): FullDescription {
+  // summary goes in the form description (plain text — newlines collapse)
   const byRule: Record<string, number> = {};
   for (const e of offenseEntries) {
-    const key = e.ruleId || 'unknown';
+    const key = e.ruleId || 'none';
     byRule[key] = (byRule[key] ?? 0) + 1;
   }
-  const offenseBreakdown =
+  const offenseSummary =
     offenseEntries.length === 0
-      ? 'None'
-      : `${offenseEntries.length} total — ` +
-        Object.entries(byRule)
-          .map(([r, n]) => `rule ${r}: ${n}`)
-          .join(', ');
+      ? 'No offenses in the last 30 days.'
+      : Object.entries(byRule)
+          .map(([r, n]) => `Rule ${r}: ${n}`)
+          .join('  ·  ');
 
+  const summary = [
+    `👤  Age: ${profile.accountAgeDays}d  ·  Karma: ${profile.karma.toLocaleString()}`,
+    `⚠️  Offenses (30d): ${offenseEntries.length}  —  ${offenseSummary}`,
+  ].join('\n');
+
+  // actionLog goes in a paragraph field (textarea) — newlines ARE preserved there
   const playbookCount = recentEntries.filter((e) => e.usedPlaybook).length;
-
   const entryLines =
     recentEntries.length === 0
-      ? '  (no history)'
-      : recentEntries.map((e) => `  ${formatEntry(e)}`).join('\n');
+      ? '(no actions logged yet)'
+      : recentEntries
+          .map((e) => {
+            const icon = ACTION_ICON[e.action] ?? '?';
+            const rule = e.ruleId ? `rule ${e.ruleId}` : 'no rule';
+            const pb = e.usedPlaybook ? '  [PB]' : '';
+            const date = new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return `${icon}  ${e.action.padEnd(7)}  ${date}  ·  ${rule}  ·  u/${e.modId}${pb}`;
+          })
+          .join('\n');
 
-  return [
-    '── Profile ─────────────────────────────',
-    profileBlock,
-    '',
-    '── Offenses (last 30 days) ─────────────',
-    offenseBreakdown,
-    '',
-    '── Recent actions (latest first) ────────',
+  const actionLog = [
+    `${recentEntries.length} action${recentEntries.length === 1 ? '' : 's'} · ${playbookCount} playbook-assisted`,
+    '─────────────────────────────',
     entryLines,
-    '',
-    `Playbook-assisted actions: ${playbookCount} of ${recentEntries.length}`,
   ].join('\n');
+
+  return { summary, actionLog };
 }
 
 // ─── Menu handler: POST /view-history ────────────────────────────────────────
@@ -212,7 +214,7 @@ viewHistoryForms.post('/view-history-dismiss', async (c) => {
   ]);
 
   const offenseEntries = sinceEntries.filter((e) => OFFENSE_ACTIONS.has(e.action));
-  const description = buildFullDescription(profile, allEntries, offenseEntries);
+  const { summary, actionLog } = buildFullDescription(profile, allEntries, offenseEntries);
 
   return c.json<UiResponse>(
     {
@@ -220,8 +222,14 @@ viewHistoryForms.post('/view-history-dismiss', async (c) => {
         name: 'viewHistoryDetail',
         form: {
           title: `History — u/${username}`,
-          description,
+          description: summary,
           fields: [
+            {
+              type: 'paragraph',
+              name: '_actionLog',
+              label: '📋 Action Log (newest first)',
+              defaultValue: actionLog,
+            },
             {
               type: 'boolean',
               name: 'reviewed',
