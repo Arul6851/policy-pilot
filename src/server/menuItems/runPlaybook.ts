@@ -16,18 +16,19 @@ import type { LedgerAction, LedgerEntry, PlaybookAction } from '../../shared/typ
 const OFFENSE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_TTL_SECS = 900;
 
-const RULE_NAMES: Record<string, string> = {
-  '1': 'No spam or self-promotion',
-  '2': 'Be civil and respectful',
-  '3': 'No low-effort or duplicate posts',
-  '4': 'Stay on topic',
-  '5': 'No misinformation or misleading content',
-  '6': 'No ban evasion or alt account abuse',
-};
+async function getRuleName(ruleId: string): Promise<string> {
+  try {
+    const rules = await reddit.getRules(context.subredditName);
+    const sorted = rules.sort((a, b) => a.priority - b.priority);
+    const idx = parseInt(ruleId, 10) - 1;
+    return sorted[idx]?.shortName ?? '';
+  } catch {
+    return '';
+  }
+}
 
-function defaultRemovalComment(ruleId: string): string {
-  const name = RULE_NAMES[ruleId];
-  const ref = name ? `Rule ${ruleId}: ${name}` : ruleId ? `Rule ${ruleId}` : 'community rules';
+function defaultRemovalComment(ruleId: string, ruleName: string): string {
+  const ref = ruleName ? `Rule ${ruleId}: ${ruleName}` : ruleId ? `Rule ${ruleId}` : 'community rules';
   return `Your submission was removed for violating **${ref}**.\n\nPlease review the subreddit rules before posting again.`;
 }
 
@@ -275,7 +276,7 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
       type: 'paragraph',
       name: 'message',
       label: isRemovalComment ? 'Removal reason (posted as mod comment)' : 'Message to user (optional)',
-      defaultValue: action.messageTemplate ?? (isRemovalComment ? defaultRemovalComment(playbook.ruleId) : ''),
+      defaultValue: action.messageTemplate ?? (isRemovalComment ? defaultRemovalComment(playbook.ruleId, '') : ''),
     });
   }
 
@@ -352,14 +353,19 @@ runPlaybookForms.post('/run-playbook-confirm', async (c) => {
         if (isT3(targetId)) await reddit.remove(targetId, false);
         else if (isT1(targetId)) await reddit.remove(targetId, false);
         if (isT3(targetId) && session.postModComment) {
-          const commentText = messageText || defaultRemovalComment(session.playbookRuleId);
+          const ruleName = await getRuleName(session.playbookRuleId);
+          const commentText = messageText || defaultRemovalComment(session.playbookRuleId, ruleName);
           try {
             const modComment = await reddit.submitComment({
               id: targetId as T3,
               text: commentText,
               runAs: 'USER',
             });
-            await modComment.distinguish(true);
+            try {
+              await modComment.distinguish(true);
+            } catch (err) {
+              console.error('PolicyPilot: could not distinguish comment (non-fatal)', err);
+            }
           } catch (err) {
             console.error('PolicyPilot: failed to post mod comment', err);
           }

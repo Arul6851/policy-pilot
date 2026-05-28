@@ -403,11 +403,11 @@ configPlaybookForms.post('/preview-playbook-select', async (c) => {
         getLedgerEntriesSince(redis, userId, since),
       ]);
 
-      const offensesByRule: Record<string, number> = { '': 0 };
+      const offensesByRule: Record<string, number> = {};
       for (const e of entries) {
         if (PREVIEW_OFFENSE_ACTIONS.has(e.action)) {
-          offensesByRule[''] = (offensesByRule[''] ?? 0) + 1;
-          if (e.ruleId) offensesByRule[e.ruleId] = (offensesByRule[e.ruleId] ?? 0) + 1;
+          const key = e.ruleId || '';
+          offensesByRule[key] = (offensesByRule[key] ?? 0) + 1;
         }
       }
 
