@@ -51,7 +51,7 @@ export async function addLedgerEntry(
         text: buildUsernoteText(entry),
         moderatorUsername: entry.modId,
         timestamp: new Date(entry.timestamp),
-      });
+      }, undefined);
     } catch {
       // Toolbox wiki pages absent or write failed — no-op
     }

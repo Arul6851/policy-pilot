@@ -46,7 +46,7 @@ function buildToastText(username: string, risk: RiskLevel, offenseCount: number,
   return `${icon} u/${username} — ${label} | Account: ${accountAgeDays}d | Karma: ${formatKarma(karma)}`;
 }
 
-function buildQuickSummary(username: string, risk: RiskLevel, offenseCount: number, profile: CachedProfile): string {
+function buildQuickSummary(risk: RiskLevel, offenseCount: number, profile: CachedProfile): string {
   const riskLine =
     risk === 'clean'
       ? '🟢 No offenses in the last 30 days.'
@@ -59,23 +59,6 @@ function buildQuickSummary(username: string, risk: RiskLevel, offenseCount: numb
     `Age: ${profile.accountAgeDays} days  ·  Karma: ${profile.karma.toLocaleString()}`,
     'Tap "View Full History" for the complete action log.',
   ].join('\n\n');
-}
-
-// ─── Helpers shared with detail view ─────────────────────────────────────────
-
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatEntry(e: LedgerEntry): string {
-  const icon = ACTION_ICON[e.action] ?? '?';
-  const rule = e.ruleId ? `rule ${e.ruleId}` : 'no rule';
-  const pb = e.usedPlaybook ? ' [PB]' : '';
-  return `${icon} ${e.action.padEnd(7)} ${formatDate(e.timestamp)}  ${rule}  by u/${e.modId}${pb}`;
 }
 
 type FullDescription = { summary: string; actionLog: string };
@@ -160,7 +143,7 @@ viewHistoryMenu.post('/view-history', async (c) => {
   const offenseEntries = sinceEntries.filter((e) => OFFENSE_ACTIONS.has(e.action));
   const risk = computeRisk(offenseEntries.length);
   const toastText = buildToastText(authorName, risk, offenseEntries.length, profile.accountAgeDays, profile.karma);
-  const quickSummary = buildQuickSummary(authorName, risk, offenseEntries.length, profile);
+  const quickSummary = buildQuickSummary(risk, offenseEntries.length, profile);
 
   return c.json<UiResponse>(
     {

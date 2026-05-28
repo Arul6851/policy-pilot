@@ -50,7 +50,7 @@ modReportMenu.post('/mod-report', async (c) => {
     for (const e of entries) {
       totalActions++;
       actionBreakdown[e.action] = (actionBreakdown[e.action] ?? 0) + 1;
-      if (e.action !== 'note' && e.action !== 'approve') {
+      if (OFFENSE_ACTIONS.has(e.action)) {
         offenderCounts[userId] = (offenderCounts[userId] ?? 0) + 1;
       }
       if (e.modId && e.modId !== 'PolicyPilot') {

@@ -255,7 +255,7 @@ export function Dashboard() {
             ] as { label: string; value: number | string; sub?: string; hex: string; delay: number }[]
           ).map(({ label, value, sub, hex, delay }) => (
             <div key={label} style={{ animation: `fadeInUp 0.4s ease-out ${delay}ms both` }}>
-              <StatTile label={label} value={value} sub={sub} accentHex={hex} />
+              <StatTile label={label} value={value} {...(sub !== undefined ? { sub } : {})} accentHex={hex} />
             </div>
           ))}
         </div>
