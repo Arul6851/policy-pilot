@@ -6,7 +6,9 @@ export type ConditionValues = {
   accountAgeDays: number;
   karma: number;
   isSubscriber: boolean;
-  offensesByRule: Record<string, number>; // '' key = total across all rules
+  // '' key = offenses with no rule attribution (onModAction entries)
+  // rule keys = offenses attributed to a specific rule (playbook-logged entries)
+  offensesByRule: Record<string, number>;
 };
 
 function evalCondition(condition: PlaybookCondition, values: ConditionValues): boolean {
@@ -17,7 +19,13 @@ function evalCondition(condition: PlaybookCondition, values: ConditionValues): b
       actual = values.accountAgeDays;
       break;
     case 'priorOffenses':
-      actual = values.offensesByRule[condition.ruleScope ?? ''] ?? 0;
+      if (condition.ruleScope) {
+        // rule-specific + unattributed entries both count toward this rule's escalation ladder
+        actual = (values.offensesByRule[condition.ruleScope] ?? 0) + (values.offensesByRule[''] ?? 0);
+      } else {
+        // no scope = total across all rules
+        actual = Object.values(values.offensesByRule).reduce((sum, n) => sum + n, 0);
+      }
       break;
     case 'karma':
       actual = values.karma;

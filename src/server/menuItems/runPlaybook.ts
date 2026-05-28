@@ -211,11 +211,13 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
   const since = Date.now() - OFFENSE_WINDOW_MS;
   const entries = await getLedgerEntriesSince(redis, session.targetUsername, since);
   const OFFENSE_TYPES = new Set<LedgerAction>(['remove', 'warn', 'tempban', 'permban']);
-  const offensesByRule: Record<string, number> = { '': 0 };
+  // '' key = offenses with no ruleId (logged by onModAction, rule unknown)
+  // rule-scoped keys = offenses attributed to a specific rule (logged via playbook)
+  const offensesByRule: Record<string, number> = {};
   for (const e of entries) {
     if (OFFENSE_TYPES.has(e.action)) {
-      offensesByRule[''] = (offensesByRule[''] ?? 0) + 1;
-      if (e.ruleId) offensesByRule[e.ruleId] = (offensesByRule[e.ruleId] ?? 0) + 1;
+      const key = e.ruleId || '';
+      offensesByRule[key] = (offensesByRule[key] ?? 0) + 1;
     }
   }
 
