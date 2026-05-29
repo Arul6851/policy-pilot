@@ -88,23 +88,30 @@ function previewActionLabel(action: PlaybookAction): string {
   return action.type;
 }
 
-function previewTier(offensesOnRule: number): string {
-  if (offensesOnRule === 0) return 'Tier 1';
-  if (offensesOnRule === 1) return 'Tier 2';
-  return 'Tier 3';
+function previewTier(offenses: number): string {
+  if (offenses === 0) return '🟢 Tier 1';
+  if (offenses === 1) return '🟡 Tier 2';
+  return '🔴 Tier 3';
 }
 
 // ─── Manage helpers ───────────────────────────────────────────────────────────
 
 function buildManageFormSpec(playbooks: Playbook[]) {
+  const playbookSummary = playbooks
+    .map((p) => {
+      const tierCount = p.steps.filter((s) => s.condition.type === 'priorOffenses').length + 1;
+      return `📋 ${p.name} · Rule ${p.ruleId} · ${tierCount} tier${tierCount === 1 ? '' : 's'}`;
+    })
+    .join('\n\n');
+
   return {
     title: 'Manage Playbooks',
-    description: `${playbooks.length} playbook${playbooks.length === 1 ? '' : 's'} configured. Select one to delete.`,
+    description: `${playbooks.length} playbook${playbooks.length === 1 ? '' : 's'} configured.\n\n${playbookSummary}`,
     fields: [
       {
         type: 'select' as const,
         name: 'playbookId',
-        label: 'Playbook',
+        label: 'Select playbook to delete',
         required: true,
         options: playbooks.map((p) => ({ label: p.name, value: p.id })),
       },
@@ -376,7 +383,9 @@ configPlaybookForms.post('/preview-playbook-select', async (c) => {
 
   const since = Date.now() - PREVIEW_WINDOW_MS;
   const allUserIds = await getRecentLedgerUsers(redis, since);
-  const previewIds = allUserIds.slice(0, PREVIEW_LIMIT);
+  const previewIds = allUserIds
+    .filter((id) => !id.endsWith('-ModTeam') && id !== 'PolicyPilot')
+    .slice(0, PREVIEW_LIMIT);
 
   if (!previewIds.length) {
     return c.json<UiResponse>(
@@ -419,27 +428,26 @@ configPlaybookForms.post('/preview-playbook-select', async (c) => {
       };
 
       const result = evaluatePlaybook(playbook, values);
-      const offensesOnRule = offensesByRule[playbook.ruleId] ?? 0;
+      // include unattributed entries — same logic as playbookService evalCondition
+      const offensesOnRule = (offensesByRule[playbook.ruleId] ?? 0) + (offensesByRule[''] ?? 0);
 
       return { userId, result, offensesOnRule };
     })
   );
 
   const resultLines = rows.map(({ userId, result, offensesOnRule }) => {
-    if (!result) return `u/${userId} → No action`;
+    if (!result) return `👤 u/${userId} → No action`;
     const tier = previewTier(offensesOnRule);
     const action = previewActionLabel(result.action);
-    return `u/${userId} → ${tier} (${action})`;
+    return `👤 u/${userId} → ${tier} (${action}) · ${offensesOnRule} offense${offensesOnRule === 1 ? '' : 's'}`;
   });
 
   const description = [
-    `Playbook: "${playbook.name}" · Rule ${playbook.ruleId}`,
-    `Simulated against ${rows.length} user${rows.length === 1 ? '' : 's'} (last 30 days of ledger data)`,
-    '─────────────────────────────────────',
-    ...resultLines,
-    '─────────────────────────────────────',
-    'No actions were taken. This is a dry-run only.',
-  ].join('\n');
+    `📋 ${playbook.name} · Rule ${playbook.ruleId}`,
+    `Simulated ${rows.length} user${rows.length === 1 ? '' : 's'} · last 30 days · dry-run only`,
+    '',
+    resultLines.join('\n\n'),
+  ].join('\n\n');
 
   return c.json<UiResponse>(
     {

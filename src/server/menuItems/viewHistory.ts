@@ -94,16 +94,15 @@ function buildFullDescription(
       : recentEntries
           .map((e) => {
             const icon = ACTION_ICON[e.action] ?? '?';
-            const rule = e.ruleId ? `rule ${e.ruleId}` : 'no rule';
-            const pb = e.usedPlaybook ? '  [PB]' : '';
+            const rule = e.ruleId ? `Rule ${e.ruleId}` : 'no rule';
+            const pb = e.usedPlaybook ? ' · 📋 playbook' : '';
             const date = new Date(e.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return `${icon}  ${e.action.padEnd(7)}  ${date}  ·  ${rule}  ·  u/${e.modId}${pb}`;
+            return `${icon} ${e.action} · ${date} · ${rule} · u/${e.modId}${pb}`;
           })
           .join('\n');
 
   const actionLog = [
-    `${recentEntries.length} action${recentEntries.length === 1 ? '' : 's'} · ${playbookCount} playbook-assisted`,
-    '─────────────────────────────',
+    `📋 ${recentEntries.length} action${recentEntries.length === 1 ? '' : 's'} · ${playbookCount} playbook-assisted`,
     entryLines,
   ].join('\n');
 

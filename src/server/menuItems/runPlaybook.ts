@@ -249,15 +249,13 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
   await redis.set(pbSessionKey(mod, targetId), JSON.stringify(enrichedSession));
   await redis.expire(pbSessionKey(mod, targetId), SESSION_TTL_SECS);
 
+  const totalOffenses = Object.values(offensesByRule).reduce((sum, n) => sum + n, 0);
   const description = [
-    `User: u/${session.targetUsername}`,
-    `Playbook: ${playbook.name}`,
-    `Prior offenses (30d): ${offensesByRule[''] ?? 0}`,
-    `Account age: ${session.accountAgeDays} days`,
-    ``,
-    `Reasoning: ${reasoning}`,
-    `Recommended: ${ACTION_LABELS[recommendedValue] ?? recommendedValue}`,
-  ].join('\n');
+    `👤 u/${session.targetUsername}  ·  📋 ${playbook.name}  ·  Rule ${playbook.ruleId}`,
+    `📊 ${totalOffenses} offense${totalOffenses === 1 ? '' : 's'} (30d)  ·  Account: ${session.accountAgeDays}d  ·  Karma: ${session.karma.toLocaleString()}`,
+    `🔍 ${reasoning}`,
+    `⚡ Recommended: ${ACTION_LABELS[recommendedValue] ?? recommendedValue}`,
+  ].join('\n\n');
 
   const fields: FormField[] = [
     {
