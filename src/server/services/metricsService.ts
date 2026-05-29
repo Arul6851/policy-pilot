@@ -85,6 +85,54 @@ export async function saveDailyMetrics(
   await redis.set(METRICS_DAILY_KEY(metrics.date), JSON.stringify(metrics));
 }
 
+export async function computeWeekMetrics(redis: RedisClient): Promise<DailyMetrics> {
+  const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  const userIds = await getRecentLedgerUsers(redis, since);
+
+  const actionBreakdown: Record<LedgerAction, number> = { ...ZERO_BREAKDOWN };
+  const ruleBreakdown: Record<string, number> = {};
+  const modBreakdown: Record<string, number> = {};
+  const offenderCounts: Record<string, number> = {};
+  let totalActions = 0;
+  let playbookUsage = 0;
+
+  for (const userId of userIds) {
+    const entries = await getLedgerEntriesSince(redis, userId, since);
+    if (!entries.length) continue;
+
+    offenderCounts[userId] = entries.length;
+    totalActions += entries.length;
+
+    for (const e of entries) {
+      actionBreakdown[e.action] = (actionBreakdown[e.action] ?? 0) + 1;
+      if (e.ruleId) ruleBreakdown[e.ruleId] = (ruleBreakdown[e.ruleId] ?? 0) + 1;
+      modBreakdown[e.modId] = (modBreakdown[e.modId] ?? 0) + 1;
+      if (e.usedPlaybook) playbookUsage++;
+    }
+  }
+
+  const uniqueUsers = Object.keys(offenderCounts).length;
+  const topOffenders = Object.entries(offenderCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([userId, count]) => ({ userId, username: userId, count }));
+
+  const startLabel = new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const endLabel = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  return {
+    date: `${startLabel} – ${endLabel}`,
+    totalActions,
+    actionBreakdown,
+    uniqueUsers,
+    playbookUsage,
+    topOffenders,
+    ruleBreakdown,
+    modBreakdown,
+  };
+}
+
 export async function refreshMetrics(redis: RedisClient): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   const metrics = await computeDailyMetrics(redis, today);

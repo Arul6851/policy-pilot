@@ -170,14 +170,14 @@ export function Dashboard() {
     );
   }
 
-  const { today, recentActions, lastRefresh, currentUsername } = state.data;
+  const { week, recentActions, lastRefresh, currentUsername } = state.data;
   const consistencyPct =
-    today.totalActions > 0
-      ? Math.round((today.playbookUsage / today.totalActions) * 100)
+    week.totalActions > 0
+      ? Math.round((week.playbookUsage / week.totalActions) * 100)
       : 0;
 
   const actionEntries = (
-    Object.entries(today.actionBreakdown) as [LedgerAction, number][]
+    Object.entries(week.actionBreakdown) as [LedgerAction, number][]
   )
     .filter(([, v]) => v > 0)
     .map(([action, count]) => ({
@@ -187,7 +187,7 @@ export function Dashboard() {
       barClass: ACTION_CFG[action]?.bar ?? 'bg-gray-400',
     }));
 
-  const modEntries = Object.entries(today.modBreakdown ?? {})
+  const modEntries = Object.entries(week.modBreakdown ?? {})
     .filter(([, v]) => v > 0)
     .map(([mod, count]) => ({
       key: mod,
@@ -196,7 +196,7 @@ export function Dashboard() {
       barClass: 'bg-blue-500',
     }));
 
-  const ruleEntries = Object.entries(today.ruleBreakdown ?? {})
+  const ruleEntries = Object.entries(week.ruleBreakdown ?? {})
     .filter(([, v]) => v > 0)
     .map(([ruleId, count]) => ({
       key: ruleId,
@@ -227,7 +227,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-lg font-black text-white tracking-tight">PolicyPilot</h1>
           <p className="text-xs text-orange-200 mt-0.5">
-            {today.date} &middot; u/{currentUsername}
+            {week.date} &middot; u/{currentUsername}
           </p>
         </div>
         {refreshLabel && (
@@ -243,12 +243,12 @@ export function Dashboard() {
         <div className="grid grid-cols-3 gap-3">
           {(
             [
-              { label: 'Actions Today', value: today.totalActions, hex: '#d93900', delay: 60 },
-              { label: 'Unique Users',  value: today.uniqueUsers,  hex: '#3b82f6', delay: 130 },
+              { label: 'Actions (7d)', value: week.totalActions, hex: '#d93900', delay: 60 },
+              { label: 'Users (7d)',   value: week.uniqueUsers,  hex: '#3b82f6', delay: 130 },
               {
                 label: 'Playbook Rate',
                 value: `${consistencyPct}%`,
-                sub: `${today.playbookUsage} / ${today.totalActions}`,
+                sub: `${week.playbookUsage} / ${week.totalActions}`,
                 hex: '#8b5cf6',
                 delay: 200,
               },
@@ -263,7 +263,7 @@ export function Dashboard() {
         {/* ── Actions by type ── */}
         <Card title="Actions by Type" delay={270}>
           {actionEntries.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500">No actions recorded today</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500">No actions in the last 7 days</p>
           ) : (
             <div className="space-y-3">
               {actionEntries.map((e) => (
@@ -297,11 +297,11 @@ export function Dashboard() {
             <h2 className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500 mb-4">
               Top Offenders
             </h2>
-            {today.topOffenders.length === 0 ? (
+            {week.topOffenders.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">All clear</p>
             ) : (
               <div className="space-y-2.5">
-                {today.topOffenders.map((o, i) => (
+                {week.topOffenders.map((o, i) => (
                   <div key={o.userId} className="flex items-center gap-2">
                     <span className="text-[11px] font-bold text-gray-300 dark:text-gray-600 w-4 shrink-0">
                       {i + 1}

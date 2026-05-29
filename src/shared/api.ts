@@ -2,7 +2,7 @@ import type { DailyMetrics, LedgerEntry } from './types';
 
 export type DashboardResponse = {
   type: 'dashboard';
-  today: DailyMetrics;
+  week: DailyMetrics;
   recentActions: LedgerEntry[];
   lastRefresh: number;
   currentUsername: string;

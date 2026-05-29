@@ -4,7 +4,7 @@ import type {
   DashboardResponse,
   InitResponse,
 } from '../../shared/api';
-import { getCachedMetrics, computeDailyMetrics, saveDailyMetrics } from '../services/metricsService';
+import { computeWeekMetrics } from '../services/metricsService';
 import { getRecentLedgerUsers, getLedgerEntriesSince } from '../services/ledgerService';
 import { DASHBOARD_LAST_REFRESH_KEY } from '../utils/redisKeys';
 
@@ -16,32 +16,27 @@ type ErrorResponse = {
 export const api = new Hono();
 
 api.get('/dashboard', async (c) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const since24h = Date.now() - 86_400_000;
 
-  let metrics = await getCachedMetrics(redis, today);
-  if (!metrics) {
-    metrics = await computeDailyMetrics(redis, today);
-    await saveDailyMetrics(redis, metrics);
-    await redis.set(DASHBOARD_LAST_REFRESH_KEY, String(Date.now()));
-  }
+  const [week, recentUserIds, lastRefreshRaw, currentUsername] = await Promise.all([
+    computeWeekMetrics(redis),
+    getRecentLedgerUsers(redis, since24h),
+    redis.get(DASHBOARD_LAST_REFRESH_KEY),
+    reddit.getCurrentUsername(),
+  ]);
 
-  const since = Date.now() - 86_400_000;
-  const recentUserIds = await getRecentLedgerUsers(redis, since);
   const actionArrays = await Promise.all(
-    recentUserIds.slice(0, 10).map((id) => getLedgerEntriesSince(redis, id, since))
+    recentUserIds.slice(0, 10).map((id) => getLedgerEntriesSince(redis, id, since24h))
   );
   const recentActions = actionArrays
     .flat()
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 20);
 
-  const lastRefreshRaw = await redis.get(DASHBOARD_LAST_REFRESH_KEY);
   const lastRefresh = lastRefreshRaw ? parseInt(lastRefreshRaw, 10) : 0;
 
-  const currentUsername = (await reddit.getCurrentUsername()) ?? 'mod';
-
   return c.json<DashboardResponse>(
-    { type: 'dashboard', today: metrics, recentActions, lastRefresh, currentUsername },
+    { type: 'dashboard', week, recentActions, lastRefresh, currentUsername: currentUsername ?? 'mod' },
     200
   );
 });
