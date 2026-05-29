@@ -9,6 +9,7 @@ import {
   type ConditionValues,
 } from '../services/playbookService';
 import { addLedgerEntry, getLedgerEntriesSince } from '../services/ledgerService';
+import { PB_DEDUP_KEY } from '../utils/redisKeys';
 import { getOrFetchProfile } from '../services/profileService';
 import type { LedgerAction, LedgerEntry, PlaybookAction } from '../../shared/types';
 
@@ -344,6 +345,10 @@ runPlaybookForms.post('/run-playbook-confirm', async (c) => {
   const { targetUsername } = session;
   const subredditName = context.subredditName;
   const { type: ledgerAction, duration } = parseAction(actionValue);
+
+  // Mark this targetId so onModAction skips the duplicate ledger entry
+  await redis.set(PB_DEDUP_KEY(targetId), '1');
+  await redis.expire(PB_DEDUP_KEY(targetId), 30);
 
   try {
     switch (ledgerAction) {

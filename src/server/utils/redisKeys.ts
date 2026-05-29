@@ -17,3 +17,7 @@ export const DASHBOARD_LAST_REFRESH_KEY = 'dashboard:lastRefresh';
 
 // alert:threshold:{userId} — value = alert level sent, TTL = time window seconds
 export const ALERT_SENT_KEY = (userId: string) => `alert:threshold:${userId}`;
+
+// pb-dedup:{targetId} — TTL 30s, set by runPlaybook before executing a Reddit action
+// so onModAction can skip logging the duplicate entry
+export const PB_DEDUP_KEY = (targetId: string) => `pb-dedup:${targetId}`;

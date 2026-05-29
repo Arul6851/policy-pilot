@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { OnModActionRequest, TriggerResponse } from '@devvit/web/shared';
 import { context, redis, reddit } from '@devvit/web/server';
 import { addLedgerEntry } from '../services/ledgerService';
+import { PB_DEDUP_KEY } from '../utils/redisKeys';
 import type { LedgerEntry, LedgerAction } from '../../shared/types';
 
 export const onModActionTrigger = new Hono();
@@ -37,6 +38,16 @@ onModActionTrigger.post('/on-mod-action', async (c) => {
   if (!userId || !rawAction || userId.endsWith('-ModTeam')) {
     console.error('PolicyPilot onModAction: skipping event', { userId, rawAction });
     return c.json<TriggerResponse>({}, 200);
+  }
+
+  // Skip if a playbook already logged this action — prevents double-counting
+  const targetContentId = event.targetPost?.id ?? event.targetComment?.id;
+  if (targetContentId) {
+    const dedupFlag = await redis.get(PB_DEDUP_KEY(targetContentId));
+    if (dedupFlag) {
+      console.error(`PolicyPilot onModAction: skipping duplicate (playbook already logged) | targetId=${targetContentId}`);
+      return c.json<TriggerResponse>({}, 200);
+    }
   }
 
   const timestamp = event.actionedAt ? new Date(event.actionedAt).getTime() : Date.now();
