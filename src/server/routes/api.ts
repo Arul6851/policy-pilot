@@ -6,7 +6,7 @@ import type {
 } from '../../shared/api';
 import { computeWeekMetrics } from '../services/metricsService';
 import { getRecentLedgerUsers, getLedgerEntriesSince } from '../services/ledgerService';
-import { DASHBOARD_LAST_REFRESH_KEY } from '../utils/redisKeys';
+import { DASHBOARD_LAST_REFRESH_KEY, LEDGER_KEY, LEDGER_USERS_KEY } from '../utils/redisKeys';
 
 type ErrorResponse = {
   status: 'error';
@@ -39,6 +39,15 @@ api.get('/dashboard', async (c) => {
     { type: 'dashboard', week, recentActions, lastRefresh, currentUsername: currentUsername ?? 'mod' },
     200
   );
+});
+
+// TEMPORARY — remove after use
+api.get('/admin/clear-user', async (c) => {
+  const userId = c.req.query('userId');
+  if (!userId) return c.json({ error: 'userId query param required' }, 400);
+  await redis.del(LEDGER_KEY(userId));
+  await redis.zRem(LEDGER_USERS_KEY, [userId]);
+  return c.json({ ok: true, cleared: userId }, 200);
 });
 
 api.get('/init', async (c) => {
