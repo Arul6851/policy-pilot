@@ -19,14 +19,18 @@ const FALLBACK_RULE_OPTIONS = [
 async function fetchRuleOptions(): Promise<{ label: string; value: string }[]> {
   try {
     const rules = await reddit.getRules(context.subredditName);
+    console.error('PolicyPilot fetchRuleOptions: raw rules from API', JSON.stringify(rules.map(r => ({ priority: r.priority, shortName: r.shortName }))));
     if (!rules.length) return FALLBACK_RULE_OPTIONS;
-    return rules
+    const options = rules
       .sort((a, b) => a.priority - b.priority)
       .map((r, i) => ({
         label: `Rule ${i + 1} — ${r.shortName}`,
         value: String(i + 1),
       }));
-  } catch {
+    console.error('PolicyPilot fetchRuleOptions: generated options', JSON.stringify(options));
+    return options;
+  } catch (err) {
+    console.error('PolicyPilot fetchRuleOptions: error, using fallback', err);
     return FALLBACK_RULE_OPTIONS;
   }
 }
@@ -295,8 +299,10 @@ type ConfigFormValues = {
 configPlaybookForms.post('/config-playbook-save', async (c) => {
   const body = await c.req.json<ConfigFormValues>();
 
+  console.error('PolicyPilot configPlaybook save: raw body.ruleId =', JSON.stringify(body.ruleId));
   const name = body.name?.trim();
   const ruleId = body.ruleId?.[0];
+  console.error('PolicyPilot configPlaybook save: parsed ruleId =', ruleId);
   const firstVal = body.firstAction?.[0] ?? 'remove';
   const secondVal = body.secondAction?.[0] ?? 'warn';
   const thirdVal = body.thirdAction?.[0] ?? 'tempban-7';

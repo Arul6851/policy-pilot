@@ -209,6 +209,8 @@ runPlaybookForms.post('/run-playbook-evaluate', async (c) => {
     return c.json<UiResponse>({ showToast: 'Playbook not found.' }, 200);
   }
 
+  console.error(`PolicyPilot runPlaybook evaluate: loaded playbook id=${playbook.id} name="${playbook.name}" ruleId="${playbook.ruleId}"`);
+
   // Build offense counts for the past 30 days
   const since = Date.now() - OFFENSE_WINDOW_MS;
   const entries = await getLedgerEntriesSince(redis, session.targetUsername, since);
