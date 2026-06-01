@@ -12,12 +12,6 @@
   <em>AutoMod decides what to catch. PolicyPilot decides what to do about it.</em>
 </p>
 
-<p align="center">
-  <a href="https://devpost.com/software/policypilot-decision-governance-for-reddit-moderators">Devpost</a> •
-  <a href="https://developers.reddit.com/apps/policy-pilot">App Directory</a> •
-  <a href="YOUR_YOUTUBE_URL">Demo Video</a>
-</p>
-
 Built for the **Reddit Mod Tools & Migrated Apps Hackathon 2026**.
 
 ---
